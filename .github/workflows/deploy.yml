@@ -38,7 +38,11 @@ jobs:
           SERVICE: ${{ github.event.client_payload.service || inputs.service }}
           ENVIRONMENT: ${{ github.event.client_payload.environment || inputs.environment }}
           IMAGE: ${{ github.event.client_payload.image || inputs.image }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
+          printf '%s\n' "$GHCR_TOKEN" | ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "$SERVICE" "$ENVIRONMENT" "$IMAGE" <<'ENDSSH'
           set -eu
           SERVICE="$1"
