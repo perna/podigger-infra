@@ -7,22 +7,12 @@
 
 services:
 
-  # Serviço dedicado ao build da imagem do backend
-  # Não executa nenhum processo — apenas constrói a imagem
-  backend-image:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.production
-      args:
-        - ENVIRONMENT=production
-    image: podigger-backend:production
-
   # Backend Django + DRF
   backend-production:
     extends:
       file: docker-compose.base.yml
       service: backend
-    image: podigger-backend:production
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:main}
     container_name: podigger-production-backend
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile -
     expose:
@@ -31,8 +21,6 @@ services:
       - static_production:/app/staticfiles
       - media_production:/app/media
     depends_on:
-      backend-image:
-        condition: service_completed_successfully
       db-production:
         condition: service_healthy
       redis-production:
@@ -44,7 +32,7 @@ services:
       retries: 5
       start_period: 30s
     env_file:
-      - ./backend/.env.production
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-production
       - REDIS_URL=redis://redis-production:6379/1
@@ -64,12 +52,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: frontend
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.production
-      args:
-        - NEXT_PUBLIC_API_URL=https://api-podigger.perna.app
-        - NEXT_PUBLIC_ENVIRONMENT=production
+    image: ${FRONTEND_IMAGE:-ghcr.io/perna/podigger-nextjs-frontend:main}
     container_name: podigger-production-frontend
     expose:
       - "3000"
@@ -132,18 +115,16 @@ services:
     extends:
       file: docker-compose.base.yml
       service: celery
-    image: podigger-backend:production
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:main}
     container_name: podigger-production-celery
     command: celery -A config worker --loglevel=warning --concurrency=4
     depends_on:
-      backend-image:
-        condition: service_completed_successfully
       db-production:
         condition: service_healthy
       redis-production:
         condition: service_healthy
     env_file:
-      - ./backend/.env.production
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-production
       - REDIS_URL=redis://redis-production:6379/1
@@ -164,18 +145,16 @@ services:
     extends:
       file: docker-compose.base.yml
       service: celery-beat
-    image: podigger-backend:production
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:main}
     container_name: podigger-production-celery-beat
     command: celery -A config beat --loglevel=warning
     depends_on:
-      backend-image:
-        condition: service_completed_successfully
       db-production:
         condition: service_healthy
       redis-production:
         condition: service_healthy
     env_file:
-      - ./backend/.env.production
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-production
       - REDIS_URL=redis://redis-production:6379/1

@@ -1,0 +1,70 @@
+name: Deploy application image
+
+on:
+  repository_dispatch:
+    types: [application-image-published]
+  workflow_dispatch:
+    inputs:
+      service:
+        required: true
+        type: choice
+        options: [backend, frontend]
+      environment:
+        required: true
+        type: choice
+        options: [staging, production]
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.client_payload.environment || inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+      - name: Add VPS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+      - name: Deploy image
+        env:
+          SERVICE: ${{ github.event.client_payload.service || inputs.service }}
+          ENVIRONMENT: ${{ github.event.client_payload.environment || inputs.environment }}
+          IMAGE: ${{ github.event.client_payload.image || inputs.image }}
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "$SERVICE" "$ENVIRONMENT" "$IMAGE" <<'ENDSSH'
+          set -eu
+          SERVICE="$1"
+          ENVIRONMENT="$2"
+          IMAGE="$3"
+          ROOT="/opt/podigger-${ENVIRONMENT}"
+          COMPOSE="docker-compose.${ENVIRONMENT}.yml"
+          cd "$ROOT"
+
+          case "$SERVICE" in
+            backend)
+              sed -i "s#^BACKEND_IMAGE=.*#BACKEND_IMAGE=$IMAGE#" .env
+              docker compose -f "$COMPOSE" pull backend-${ENVIRONMENT} celery-${ENVIRONMENT} celery-beat-${ENVIRONMENT}
+              docker compose -f "$COMPOSE" up -d db-${ENVIRONMENT} redis-${ENVIRONMENT}
+              docker compose -f "$COMPOSE" run --rm backend-${ENVIRONMENT} python manage.py migrate --noinput
+              docker compose -f "$COMPOSE" run --rm backend-${ENVIRONMENT} python manage.py collectstatic --noinput
+              docker compose -f "$COMPOSE" up -d backend-${ENVIRONMENT} celery-${ENVIRONMENT} celery-beat-${ENVIRONMENT}
+              ;;
+            frontend)
+              sed -i "s#^FRONTEND_IMAGE=.*#FRONTEND_IMAGE=$IMAGE#" .env
+              docker compose -f "$COMPOSE" pull frontend-${ENVIRONMENT}
+              docker compose -f "$COMPOSE" up -d frontend-${ENVIRONMENT}
+              ;;
+            *)
+              echo "Unknown service: $SERVICE" >&2
+              exit 1
+              ;;
+          esac
+          ENDSSH

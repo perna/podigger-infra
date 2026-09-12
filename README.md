@@ -1,15 +1,17 @@
-# Podigger
+# Podigger Infrastructure
 
-Search Engine for Podcasts Subjects
+Deployment manifests and operational configuration for Podigger.
 
-A modern podcast aggregator built with Django (backend) and Next.js (frontend). Search, browse, and add podcast feeds with automatic episode parsing via Celery workers.
+This repository will own Docker Compose, Nginx, backups, environment wiring,
+and deployment workflows. Application repositories publish immutable images;
+this repository deploys those images without building application source on the
+VPS.
 
-## Stack
+## Planned services
 
-- **Backend**: Django 5.2 + Django REST Framework, PostgreSQL, Redis, Celery
-- **Frontend**: Next.js 16 + React 19, TypeScript, Tailwind CSS v4
-- **Infrastructure**: Docker Compose (local/staging/production), GitHub Actions CI/CD
+- Backend image for Django, Celery worker, and Celery Beat
+- Frontend image for Next.js
+- PostgreSQL and Redis
+- Nginx gateway
 
-## Quick Start
-
-See [README.dev.md](README.dev.md) for local development setup instructions.
+Secrets stay in GitHub Environments or on the VPS. They are never committed.

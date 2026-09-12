@@ -12,11 +12,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: backend
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.production
-      args:
-        - ENVIRONMENT=staging
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:develop}
     container_name: podigger-staging-backend
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
     expose:
@@ -30,7 +26,7 @@ services:
       redis-staging:
         condition: service_healthy
     env_file:
-      - ./backend/.env.staging
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-staging
       - REDIS_URL=redis://redis-staging:6379/1
@@ -45,12 +41,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: frontend
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.production
-      args:
-        - NEXT_PUBLIC_API_URL=https://staging-api-podigger.perna.app
-        - NEXT_PUBLIC_ENVIRONMENT=staging
+    image: ${FRONTEND_IMAGE:-ghcr.io/perna/podigger-nextjs-frontend:develop}
     container_name: podigger-staging-frontend
     expose:
       - "3000"
@@ -97,11 +88,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: celery
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.production
-      args:
-        - ENVIRONMENT=staging
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:develop}
     container_name: podigger-staging-celery
     command: celery -A config worker --loglevel=warning --concurrency=4
     depends_on:
@@ -110,7 +97,7 @@ services:
       redis-staging:
         condition: service_healthy
     env_file:
-      - ./backend/.env.staging
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-staging
       - REDIS_URL=redis://redis-staging:6379/1
@@ -126,11 +113,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: celery-beat
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.production
-      args:
-        - ENVIRONMENT=staging
+    image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:develop}
     container_name: podigger-staging-celery-beat
     command: celery -A config beat --loglevel=info
     depends_on:
@@ -139,7 +122,7 @@ services:
       redis-staging:
         condition: service_healthy
     env_file:
-      - ./backend/.env.staging
+      - ${APP_ENV_FILE:-.env}
     environment:
       - DATABASE_HOST=db-staging
       - REDIS_URL=redis://redis-staging:6379/1
