@@ -1,4 +1,4 @@
-name: Deploy application image
+name: Deploy staging application image
 
 on:
   repository_dispatch:
@@ -9,10 +9,6 @@ on:
         required: true
         type: choice
         options: [backend, frontend]
-      environment:
-        required: true
-        type: choice
-        options: [staging, production]
       image:
         required: true
         type: string
@@ -20,51 +16,106 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: podigger-staging-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.client_payload.environment == 'staging')
     runs-on: ubuntu-latest
-    environment: ${{ github.event.client_payload.environment || inputs.environment }}
+    timeout-minutes: 30
+    environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - name: Validate staging deploy configuration
+        env:
+          SERVICE: ${{ github.event.client_payload.service || inputs.service }}
+          IMAGE: ${{ github.event.client_payload.image || inputs.image }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in VPS_HOST VPS_USER VPS_KNOWN_HOSTS GHCR_USERNAME GHCR_TOKEN VPS_SSH_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing staging environment variable or secret: $name"
+              exit 1
+            fi
+          done
+
+          case "$SERVICE" in
+            backend)
+              [[ "$IMAGE" =~ ^ghcr\.io/perna/podigger-django-backend:(develop|sha-[0-9a-f]{40})$ ]] || {
+                echo "::error::Image is not an allowed backend staging tag."
+                exit 1
+              }
+              ;;
+            frontend)
+              [[ "$IMAGE" =~ ^ghcr\.io/perna/podigger-nextjs-frontend:(develop|sha-[0-9a-f]{40})$ ]] || {
+                echo "::error::Image is not an allowed frontend staging tag."
+                exit 1
+              }
+              ;;
+            *) echo "::error::Unsupported staging service: $SERVICE"; exit 1 ;;
+          esac
+
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
-      - name: Add VPS host key
+
+      - name: Install pinned VPS host key
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
-      - name: Deploy image
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -F "$VPS_HOST" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Deploy staging image
         env:
           SERVICE: ${{ github.event.client_payload.service || inputs.service }}
-          ENVIRONMENT: ${{ github.event.client_payload.environment || inputs.environment }}
           IMAGE: ${{ github.event.client_payload.image || inputs.image }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
-          printf '%s\n' "$GHCR_TOKEN" | ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+          set -euo pipefail
+          trap 'ssh "$VPS_USER@$VPS_HOST" "docker logout ghcr.io" >/dev/null 2>&1 || true' EXIT
+
+          printf '%s\n' "$GHCR_TOKEN" | ssh "$VPS_USER@$VPS_HOST" \
             "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
-          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "$SERVICE" "$ENVIRONMENT" "$IMAGE" <<'ENDSSH'
+
+          ssh "$VPS_USER@$VPS_HOST" bash -s -- "$SERVICE" "$IMAGE" <<'ENDSSH'
           set -eu
           SERVICE="$1"
-          ENVIRONMENT="$2"
-          IMAGE="$3"
-          ROOT="/opt/podigger-${ENVIRONMENT}"
-          COMPOSE="docker-compose.${ENVIRONMENT}.yml"
+          IMAGE="$2"
+          ROOT="/opt/podigger-staging"
+          COMPOSE="docker-compose.staging.yml"
           cd "$ROOT"
 
           case "$SERVICE" in
             backend)
               sed -i "s#^BACKEND_IMAGE=.*#BACKEND_IMAGE=$IMAGE#" .env
-              docker compose -f "$COMPOSE" pull backend-${ENVIRONMENT} celery-${ENVIRONMENT} celery-beat-${ENVIRONMENT}
-              docker compose -f "$COMPOSE" up -d db-${ENVIRONMENT} redis-${ENVIRONMENT}
-              docker compose -f "$COMPOSE" run --rm backend-${ENVIRONMENT} python manage.py migrate --noinput
-              docker compose -f "$COMPOSE" run --rm backend-${ENVIRONMENT} python manage.py collectstatic --noinput
-              docker compose -f "$COMPOSE" up -d backend-${ENVIRONMENT} celery-${ENVIRONMENT} celery-beat-${ENVIRONMENT}
+              docker compose -f "$COMPOSE" pull backend-staging celery-staging celery-beat-staging
+              docker compose -f "$COMPOSE" up -d db-staging redis-staging
+              docker compose -f "$COMPOSE" run --rm backend-staging python manage.py migrate --noinput
+              docker compose -f "$COMPOSE" run --rm backend-staging python manage.py collectstatic --noinput
+              docker compose -f "$COMPOSE" up -d --wait backend-staging celery-staging celery-beat-staging
               ;;
             frontend)
               sed -i "s#^FRONTEND_IMAGE=.*#FRONTEND_IMAGE=$IMAGE#" .env
-              docker compose -f "$COMPOSE" pull frontend-${ENVIRONMENT}
-              docker compose -f "$COMPOSE" up -d frontend-${ENVIRONMENT}
+              docker compose -f "$COMPOSE" pull frontend-staging
+              docker compose -f "$COMPOSE" up -d --wait frontend-staging
+              test -s /opt/podigger-proxy/certs/cloudflare.crt
+              test -s /opt/podigger-proxy/certs/cloudflare.key
+              docker compose -f /opt/podigger-proxy/docker-compose.yml run --rm --no-deps nginx-proxy nginx -t
+              docker compose -f /opt/podigger-proxy/docker-compose.yml up -d nginx-proxy
               ;;
             *)
               echo "Unknown service: $SERVICE" >&2

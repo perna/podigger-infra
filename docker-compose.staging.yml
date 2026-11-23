@@ -45,9 +45,11 @@ services:
     container_name: podigger-staging-frontend
     expose:
       - "3000"
+    environment:
+      BACKEND_INTERNAL_URL: http://backend-staging:8000
     depends_on:
       backend-staging:
-        condition: service_started
+        condition: service_healthy
     networks:
       - podigger-staging
       - podigger-proxy
