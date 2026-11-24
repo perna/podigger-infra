@@ -76,6 +76,15 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           ssh-keygen -F "$VPS_HOST" -f ~/.ssh/known_hosts >/dev/null
 
+      - name: Sync staging Compose manifests
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+        run: |
+          scp -o StrictHostKeyChecking=yes \
+            docker-compose.base.yml docker-compose.staging.yml \
+            "$VPS_USER@$VPS_HOST:/opt/podigger-staging/"
+
       - name: Deploy staging image
         env:
           SERVICE: ${{ github.event.client_payload.service || inputs.service }}
