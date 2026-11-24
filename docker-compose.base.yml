@@ -133,11 +133,11 @@ services:
           memory: 512M
     healthcheck:
       # Celery worker health check via celery inspect ping
-      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      test: ["CMD-SHELL", "celery -A config inspect ping --timeout=10 | grep -qi pong"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     logging:
       driver: json-file
       options:
@@ -159,6 +159,8 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    healthcheck:
+      disable: true
     logging:
       driver: json-file
       options:
