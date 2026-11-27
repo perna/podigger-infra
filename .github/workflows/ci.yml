@@ -33,5 +33,9 @@ jobs:
             echo "::error::Staging Celery healthcheck timeout is $timeout; expected 45s."
             exit 1
           fi
+      - name: Assert staging frontend healthcheck uses Node
+        run: |
+          docker compose --env-file .env.example -f docker-compose.staging.yml config --format json |
+          python3 -c 'import json,sys; test=" ".join(json.load(sys.stdin)["services"]["frontend-staging"]["healthcheck"]["test"]); assert "node" in test and "/api/health" in test and "curl" not in test, test; print("Staging frontend healthcheck uses Node.")'
       - name: Validate production Compose
         run: docker compose --env-file .env.example -f docker-compose.production.yml config --quiet

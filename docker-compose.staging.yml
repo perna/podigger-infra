@@ -45,6 +45,12 @@ services:
     container_name: podigger-staging-frontend
     expose:
       - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     environment:
       BACKEND_INTERNAL_URL: http://backend-staging:8000
     depends_on:
