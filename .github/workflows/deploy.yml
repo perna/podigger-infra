@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 30
     environment: staging
     steps:
+      - uses: actions/checkout@v4
+
       - name: Validate staging deploy configuration
         env:
           SERVICE: ${{ github.event.client_payload.service || inputs.service }}
