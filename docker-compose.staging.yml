@@ -93,6 +93,12 @@ services:
     image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:develop}
     container_name: podigger-staging-celery
     command: celery -A config worker --loglevel=warning --concurrency=1
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping --timeout=10 | grep -qi pong"]
+      interval: 30s
+      timeout: 45s
+      retries: 3
+      start_period: 90s
     depends_on:
       db-staging:
         condition: service_healthy

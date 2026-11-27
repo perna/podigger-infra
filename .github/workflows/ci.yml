@@ -26,5 +26,12 @@ jobs:
         run: docker compose -f docker-compose.integration.yml config --quiet
       - name: Validate staging Compose
         run: docker compose --env-file .env.example -f docker-compose.staging.yml config --quiet
+      - name: Assert staging Celery healthcheck timeout
+        run: |
+          timeout="$(docker compose --env-file .env.example -f docker-compose.staging.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["celery-staging"]["healthcheck"]["timeout"])')"
+          if [ "$timeout" != "45s" ]; then
+            echo "::error::Staging Celery healthcheck timeout is $timeout; expected 45s."
+            exit 1
+          fi
       - name: Validate production Compose
         run: docker compose --env-file .env.example -f docker-compose.production.yml config --quiet
