@@ -92,7 +92,7 @@ services:
       service: celery
     image: ${BACKEND_IMAGE:-ghcr.io/perna/podigger-django-backend:develop}
     container_name: podigger-staging-celery
-    command: celery -A config worker --loglevel=warning --concurrency=2
+    command: celery -A config worker --loglevel=warning --concurrency=1
     depends_on:
       db-staging:
         condition: service_healthy
